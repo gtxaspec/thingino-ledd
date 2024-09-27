@@ -9,13 +9,14 @@
 #include <sys/stat.h>
 
 #define MAX_BUF 64
-#define FW_PRINTENV_CMD "fw_printenv | grep ^gpio_led_"
+#define FW_PRINTENV_CMD "fw_printenv | grep ^gpio_led_ | sort"
 
 static int gpio_pin = -1;
-static int original_state = -1;
 static volatile sig_atomic_t keep_running = 1;
 static double blink_interval = 1.0;  // Default blink interval in seconds
-static const char *monitor_file = "/tmp/boot"; // Default file to monitor
+static const char *monitor_file = "/var/run/boot"; // Default file to monitor
+static int active_low = 0;  // Default to active high (0 means active high)
+static int off_value = 1;  // Default off value, assuming active high
 
 // New flags
 static int file_was_present = 0;
@@ -26,7 +27,6 @@ static void blink_led(int gpio_pin);
 static int export_gpio(int gpio);
 static int unexport_gpio(int gpio);
 static int set_gpio_value(int gpio, int value);
-static int get_gpio_value(int gpio);
 static int get_gpio_pin_from_fw(void);
 static void handle_signal(int sig);
 static void setup_signal_handling(void);
@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
 		monitor_file = argv[2];
 	}
 
-	// Get GPIO pin from fw_printenv
+	// Get GPIO pin from fw_printenv and set off state
 	gpio_pin = get_gpio_pin_from_fw();
 	if (gpio_pin == -1) {
 		fprintf(stderr, "Failed to retrieve GPIO pin from fw_printenv\n");
@@ -66,8 +66,8 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	// Get the original state of the GPIO
-	original_state = get_gpio_value(gpio_pin);
+	// Set the initial state of the GPIO to "off" based on the active_low flag
+	set_gpio_value(gpio_pin, off_value);
 
 	init_daemon();
 	setup_signal_handling();
@@ -92,17 +92,17 @@ int main(int argc, char *argv[]) {
 			}
 		} else {
 			if (file_was_present) {
-				// The file has just disappeared, so restore the original GPIO state
-				syslog(LOG_INFO, "Monitored file disappeared, restoring GPIO state");
-				set_gpio_value(gpio_pin, original_state);  // Restore original state
+				// The file has just disappeared, so set the GPIO to the off state
+				syslog(LOG_INFO, "Monitored file disappeared, turning off GPIO");
+				set_gpio_value(gpio_pin, off_value);  // Set GPIO to "off"
 				file_was_present = 0;  // Mark that the file is no longer present
 				gpio_was_active = 0;   // Mark that the GPIO is inactive
 			}
-			usleep(500000);  // Sleep for 500ms before checking again
+			usleep(100000);  // Sleep for 500ms before checking again
 		}
 	}
 
-	reset_gpio_state();
+	set_gpio_value(gpio_pin, off_value);  // Ensure LED is "off" before exiting
 	unexport_gpio(gpio_pin);
 	closelog();
 	return EXIT_SUCCESS;
@@ -117,9 +117,9 @@ static void blink_led(int gpio_pin) {
 			break;  // Stop blinking if the file is no longer accessible
 		}
 
-		set_gpio_value(gpio_pin, 1);  // Set GPIO high
+		set_gpio_value(gpio_pin, 1 - off_value);  // Set GPIO to "on"
 		usleep(sleep_time);
-		set_gpio_value(gpio_pin, 0);  // Set GPIO low
+		set_gpio_value(gpio_pin, off_value);  // Set GPIO to "off"
 		usleep(sleep_time);
 	}
 }
@@ -127,6 +127,7 @@ static void blink_led(int gpio_pin) {
 static int export_gpio(int gpio) {
 	char command[MAX_BUF];
 	snprintf(command, sizeof(command), "gpio export %d", gpio);
+	snprintf(command, sizeof(command), "gpio output %d", gpio);
 	return system(command);
 }
 
@@ -149,20 +150,6 @@ static int set_gpio_value(int gpio, int value) {
 	return 0;
 }
 
-static int get_gpio_value(int gpio) {
-	char buf[MAX_BUF];
-	snprintf(buf, sizeof(buf), "/sys/class/gpio/gpio%d/value", gpio);
-	FILE *fd = fopen(buf, "r");
-	if (fd == NULL) {
-		syslog(LOG_ERR, "Failed to open GPIO value for GPIO %d", gpio);
-		return -1;
-	}
-	int value;
-	fscanf(fd, "%d", &value);
-	fclose(fd);
-	return value;
-}
-
 static int get_gpio_pin_from_fw(void) {
 	FILE *fp = popen(FW_PRINTENV_CMD, "r");
 	if (fp == NULL) {
@@ -173,19 +160,38 @@ static int get_gpio_pin_from_fw(void) {
 	char buffer[MAX_BUF];
 	int gpio_pin = -1;
 
-	// Parse the fw_printenv output for the GPIO pin
+	// Parse the fw_printenv output for the GPIO pin and check if active_low or active_high
 	while (fgets(buffer, sizeof(buffer), fp) != NULL) {
 		char *pos = strchr(buffer, '=');
 		if (pos != NULL) {
 			long val = strtol(pos + 1, NULL, 10);
 			if (val >= 0) {
 				gpio_pin = (int)val;
+
+				// logic for interpreting the suffix 'o' or 'O'
+				if (strchr(pos + 1, 'o')) {
+					active_low = 1;  // Active low (0 means on, 1 means off)
+					off_value = 1;   // Set off_value to 1 (high is off, low is on)
+				} else if (strchr(pos + 1, 'O')) {
+					active_low = 0;  // Active high (1 means on, 0 means off)
+					off_value = 0;   // Set off_value to 0 (low is off, high is on)
+				} else {
+					// No suffix, assume active high and off is 0
+					active_low = 0;
+					off_value = 0;
+				}
 				break;
 			}
 		}
 	}
 
 	pclose(fp);
+
+	// If no gpio_led entry was found, log an error and return -1
+	if (gpio_pin == -1) {
+		syslog(LOG_ERR, "No gpio_led entries found in fw_printenv");
+	}
+
 	return gpio_pin;
 }
 
@@ -240,9 +246,7 @@ static void init_daemon(void) {
 }
 
 static void reset_gpio_state(void) {
-	if (original_state != -1) {
-		set_gpio_value(gpio_pin, original_state);
-	}
+	set_gpio_value(gpio_pin, off_value);  // Always set to "off"
 }
 
 static double read_blink_interval_from_file(const char *file_path) {
