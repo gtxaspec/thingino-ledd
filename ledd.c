@@ -17,6 +17,10 @@ static volatile sig_atomic_t keep_running = 1;
 static double blink_interval = 1.0;  // Default blink interval in seconds
 static const char *monitor_file = "/tmp/boot"; // Default file to monitor
 
+// New flags
+static int file_was_present = 0;
+static int gpio_was_active = 0;  // Track if GPIO was being used for blinking
+
 // prototypes
 static void blink_led(int gpio_pin);
 static int export_gpio(int gpio);
@@ -72,18 +76,29 @@ int main(int argc, char *argv[]) {
 	openlog("led_blink_daemon", LOG_PID, LOG_DAEMON);
 
 	while (keep_running) {
-		// Only blink the LED if the monitored file exists
+		// Check if the monitored file exists
 		if (access(monitor_file, F_OK) == 0) {
-			double new_interval = read_blink_interval_from_file(monitor_file);
-			if (new_interval > 0) {
-				blink_interval = new_interval;
-				syslog(LOG_INFO, "Blink interval updated to %.2f seconds", blink_interval);
+			if (!file_was_present) {
+				// The file has just appeared, so start blinking
+				syslog(LOG_INFO, "Monitored file appeared, starting LED blink");
+				double new_interval = read_blink_interval_from_file(monitor_file);
+				if (new_interval > 0) {
+					blink_interval = new_interval;
+					syslog(LOG_INFO, "Blink interval updated to %.2f seconds", blink_interval);
+				}
+				blink_led(gpio_pin);  // Start blinking the LED
+				file_was_present = 1;  // Mark that the file is present
+				gpio_was_active = 1;   // Mark that the GPIO is active
 			}
-			blink_led(gpio_pin);  // Blink the LED
 		} else {
-			// If the file doesn't exist, restore the original state and stop touching the GPIO
-			set_gpio_value(gpio_pin, original_state);  // Restore original state
-			usleep(500000);  // Sleep for before checking again
+			if (file_was_present) {
+				// The file has just disappeared, so restore the original GPIO state
+				syslog(LOG_INFO, "Monitored file disappeared, restoring GPIO state");
+				set_gpio_value(gpio_pin, original_state);  // Restore original state
+				file_was_present = 0;  // Mark that the file is no longer present
+				gpio_was_active = 0;   // Mark that the GPIO is inactive
+			}
+			usleep(500000);  // Sleep for 500ms before checking again
 		}
 	}
 
