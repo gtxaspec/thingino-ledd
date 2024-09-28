@@ -1,8 +1,9 @@
-# Cross compiler
-CC = mipsel-linux-gcc
+# Cross compiler prefix
+CROSS_COMPILE ?= mipsel-linux-
 
-# Stripping tool
-STRIP = mipsel-linux-strip
+# Compiler and stripping
+CC = $(CROSS_COMPILE)gcc
+STRIP = $(CROSS_COMPILE)strip
 
 # Compilation flags
 CFLAGS = -Os -ffunction-sections -fdata-sections -flto
