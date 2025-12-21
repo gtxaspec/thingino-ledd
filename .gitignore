@@ -1,2 +1,19 @@
+# Build artifacts
 *.o
-ledd
+src/ledd
+src/*.o
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build directories
+build/
+dist/
