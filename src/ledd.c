@@ -43,6 +43,7 @@ static int get_gpio_value(int gpio);
 static void handle_signal(int sig);
 static void setup_signal_handling(void);
 static void init_daemon(void);
+static int parse_gpio_pin_from_filename(const char *filename, int *gpio_pin);
 static int parse_control_file(const char *filename, int *gpio_pin, double *interval_ms);
 static int read_blink_interval_from_file(const char *file_path, double *interval_ms);
 static void start_blinking_for_gpio(int gpio_pin, double interval_ms);
@@ -124,7 +125,7 @@ int main(int argc, char *argv[])
               start_blinking_for_gpio(gpio_pin, interval_ms);
             }
           } else if (event->mask & IN_DELETE) {
-            if (parse_control_file(event->name, &gpio_pin, &interval_ms) == 0) {
+            if (parse_gpio_pin_from_filename(event->name, &gpio_pin) == 0) {
               syslog(LOG_INFO, "Control file deleted: %s (GPIO %d)", event->name, gpio_pin);
               stop_blinking_for_gpio(gpio_pin);
             }
@@ -269,24 +270,34 @@ static int get_gpio_value(int gpio)
 // Parse control filename to extract GPIO pin number
 // Expected format: <PIN_NUMBER>
 // Returns 0 on success, -1 on failure
-static int parse_control_file(const char *filename, int *gpio_pin, double *interval_ms)
+static int parse_gpio_pin_from_filename(const char *filename, int *gpio_pin)
 {
-  if (filename == NULL || gpio_pin == NULL || interval_ms == NULL) {
+  if (filename == NULL || gpio_pin == NULL) {
     return -1;
   }
 
-  // Extract GPIO pin number from filename
   char *endptr;
   errno = 0;
   long pin = strtol(filename, &endptr, 10);
 
-  // Validate: must be a valid number and nothing after it
   if (errno != 0 || *endptr != '\0' || pin < 0 || pin > 1000) {
     syslog(LOG_WARNING, "Invalid GPIO pin in filename: %s", filename);
     return -1;
   }
 
   *gpio_pin = (int)pin;
+  return 0;
+}
+
+static int parse_control_file(const char *filename, int *gpio_pin, double *interval_ms)
+{
+  if (filename == NULL || gpio_pin == NULL || interval_ms == NULL) {
+    return -1;
+  }
+
+  if (parse_gpio_pin_from_filename(filename, gpio_pin) == -1) {
+    return -1;
+  }
 
   // Read interval from file
   if (read_blink_interval_from_file(filename, interval_ms) == -1) {

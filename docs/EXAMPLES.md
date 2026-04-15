@@ -5,7 +5,7 @@
 ### Single LED
 
 ```bash
-./ledd &
+./ledd
 echo "1000" > /run/ledd/17
 sleep 5
 rm /run/ledd/17
@@ -14,7 +14,7 @@ rm /run/ledd/17
 ### Multiple LEDs
 
 ```bash
-./ledd &
+./ledd
 echo "500" > /run/ledd/17
 echo "1000" > /run/ledd/27
 echo "250" > /run/ledd/22
@@ -25,7 +25,7 @@ rm /run/ledd/*
 ### Different Intervals
 
 ```bash
-./ledd &
+./ledd
 echo "100" > /run/ledd/17    # Fast: 100ms
 echo "500" > /run/ledd/27    # Medium: 500ms
 echo "2000" > /run/ledd/22   # Slow: 2000ms
@@ -37,7 +37,7 @@ echo "2000" > /run/ledd/22   # Slow: 2000ms
 
 ```bash
 #!/bin/bash
-./ledd &
+./ledd
 
 # Boot starting - fast blinking
 echo "200" > /run/ledd/17
@@ -56,7 +56,7 @@ echo "1000" > /run/ledd/17
 ### Multi-Status Indication
 
 ```bash
-./ledd &
+./ledd
 
 # Status LED - healthy
 echo "1000" > /run/ledd/17
@@ -72,7 +72,7 @@ echo "200" > /run/ledd/22
 
 ```bash
 #!/bin/bash
-./ledd &
+./ledd
 
 echo "1000" > /run/ledd/17
 sleep 5
@@ -145,7 +145,7 @@ pkill ledd
 
 ```bash
 pkill ledd
-./ledd &
+./ledd
 ```
 
 ## Scripted Control

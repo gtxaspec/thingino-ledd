@@ -4,6 +4,8 @@
 
 The daemon monitors `/run/ledd/` for control files and manages GPIO pin blinking. Each control file triggers independent blinking on a specific GPIO pin. The daemon uses inotify for efficient file system monitoring and POSIX threads for concurrent GPIO control.
 
+The daemon self-daemonizes during startup, so invoking `./ledd` is sufficient to leave it running in the background.
+
 ## Data Structures
 
 ```c

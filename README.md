@@ -12,8 +12,10 @@ make
 ## Run
 
 ```bash
-./src/ledd
+./ledd
 ```
+
+The daemon detaches and runs in the background on its own. Do not append `&`.
 
 ## Control LEDs
 
